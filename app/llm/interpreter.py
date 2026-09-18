@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Optional
@@ -39,9 +40,92 @@ def _strip_fences(text: str) -> str:
     return _FENCE_PATTERN.sub("", text.strip()).strip()
 
 
+def _content_text(content: Any) -> str:
+    """Flatten the common Chat Completions content shapes into plain text."""
+
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                parts.append(part["text"])
+        return "".join(parts)
+    return ""
+
+
+def _parse_balanced(text: str, start: int) -> Optional[tuple[Any, int]]:
+    """Parse one balanced JSON value starting at ``start``; return (value, end)."""
+
+    opener = text[start]
+    closer = "]" if opener == "[" else "}"
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start : index + 1]), index
+                except json.JSONDecodeError:
+                    return None
+    return None
+
+
+def _json_values(text: str) -> list[Any]:
+    """Parse JSON from provider text, tolerating fences, prose and concatenation."""
+
+    cleaned = _strip_fences(text)
+    try:
+        return [json.loads(cleaned)]
+    except json.JSONDecodeError:
+        pass
+
+    values: list[Any] = []
+    index = 0
+    while index < len(cleaned):
+        candidates = [
+            position
+            for position in (cleaned.find("[", index), cleaned.find("{", index))
+            if position != -1
+        ]
+        if not candidates:
+            break
+        start = min(candidates)
+        parsed = _parse_balanced(cleaned, start)
+        if parsed is None:
+            index = start + 1
+            continue
+        value, end = parsed
+        values.append(value)
+        index = end + 1
+    return values
+
+
 def _extract_list(data: Any) -> Optional[list]:
     if isinstance(data, list):
         return data
+    if isinstance(data, str):
+        try:
+            return _extract_list(json.loads(data))
+        except (json.JSONDecodeError, ValueError):
+            return None
     if isinstance(data, dict):
         for key in _LIST_KEYS:
             value = data.get(key)
@@ -50,14 +134,27 @@ def _extract_list(data: Any) -> Optional[list]:
         for value in data.values():
             if isinstance(value, list):
                 return value
+        if "directive_type" in data:
+            return [data]
+        if data and all(str(key).lstrip("-").isdigit() for key in data):
+            return [data[key] for key in sorted(data, key=lambda key: int(key))]
     return None
 
 
 def _parse_directives(content: Any) -> list[dict]:
-    if not isinstance(content, str) or not content.strip():
+    text = _content_text(content)
+    if not text.strip():
         raise LLMError("provider returned empty or non-text content")
-    parsed = json.loads(_strip_fences(content))
-    entries = _extract_list(parsed)
+
+    values = _json_values(text)
+    entries: Optional[list] = None
+    if len(values) == 1:
+        entries = _extract_list(values[0])
+    elif values and all(isinstance(value, dict) for value in values):
+        entries = values
+    if entries is None and values:
+        entries = _extract_list(values[0])
+
     if entries is None:
         raise LLMError("provider did not return a JSON array")
     if not all(isinstance(entry, dict) for entry in entries):
@@ -78,7 +175,11 @@ def _fallback(notes: list[str]) -> list[dict]:
     ]
 
 
-def _request_directives(messages: list[dict], settings: Settings) -> list[dict]:
+def _request_directives(
+    messages: list[dict],
+    settings: Settings,
+    expected_count: Optional[int] = None,
+) -> list[dict]:
     url = f"{settings.llm_base_url}/chat/completions"
     headers = {
         "Authorization": f"Bearer {settings.llm_api_key}",
@@ -89,6 +190,15 @@ def _request_directives(messages: list[dict], settings: Settings) -> list[dict]:
         "messages": messages,
         "temperature": 0,
     }
+
+    if os.getenv("LLM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+        logger.warning(
+            "LLM provider=%s model=%s base_url=%s expected=%s",
+            settings.llm_provider,
+            settings.llm_model,
+            settings.llm_base_url,
+            expected_count,
+        )
 
     for attempt in range(MAX_ATTEMPTS):
         if attempt > 0:
@@ -108,8 +218,23 @@ def _request_directives(messages: list[dict], settings: Settings) -> list[dict]:
             response.raise_for_status()
             payload = response.json()
             content = payload["choices"][0]["message"]["content"]
-            return _parse_directives(content)
-        except (httpx.HTTPError, ValueError, KeyError, TypeError, IndexError) as exc:
+            if os.getenv("LLM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+                raw = _content_text(content)
+                logger.warning("LLM raw content (len=%d): %s", len(raw), raw[:2000])
+            entries = _parse_directives(content)
+            if expected_count is not None and len(entries) != expected_count:
+                raise LLMError(
+                    f"expected {expected_count} directives but received {len(entries)}"
+                )
+            return entries
+        except (
+            httpx.HTTPError,
+            LLMError,
+            ValueError,
+            KeyError,
+            TypeError,
+            IndexError,
+        ) as exc:
             logger.warning(
                 "LLM attempt %d/%d failed (%s)",
                 attempt + 1,
@@ -135,7 +260,9 @@ def interpret_notes(
         return _fallback(notes)
 
     try:
-        return _request_directives(build_messages(notes, battery), settings)
+        return _request_directives(
+            build_messages(notes, battery), settings, expected_count=len(notes)
+        )
     except LLMError as exc:
         logger.warning("LLM interpretation failed; using no_op fallback (%s)", exc)
         return _fallback(notes)

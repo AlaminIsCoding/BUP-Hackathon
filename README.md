@@ -43,13 +43,60 @@ pip install -r requirements.txt
 cp .env.example .env   # then fill in values
 ```
 
+## Choosing an LLM provider
+
+The interpreter speaks the OpenAI-compatible Chat Completions API, so you can
+pick a provider with a single env var: `LLM_PROVIDER` (`openai`, `openrouter`,
+`gemini`, `ollama`, or `custom`). Each preset fills in the base URL, default
+model, and key env var; explicit `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`
+override the preset.
+
+| `LLM_PROVIDER` | Base URL | Default model | API-key env var |
+| --- | --- | --- | --- |
+| `openai` | `https://api.openai.com/v1` | `gpt-4o-mini` | `OPENAI_API_KEY` or `LLM_API_KEY` |
+| `openrouter` | `https://openrouter.ai/api/v1` | `deepseek/deepseek-v4.1-flash` | `OPENROUTER_API_KEY` or `LLM_API_KEY` |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-2.5-flash` | `GEMINI_API_KEY` or `LLM_API_KEY` |
+| `ollama` | `http://localhost:11434/v1` | `llama3.2` | none required (`OLLAMA_API_KEY` optional) |
+| `custom` | `LLM_BASE_URL` | `LLM_MODEL` | `LLM_API_KEY` |
+
+Copy-paste examples:
+
+```env
+# OpenRouter (cheap and reliable; preset model deepseek/deepseek-v4.1-flash)
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+# optional override: LLM_MODEL=deepseek/deepseek-v4.1-flash
+
+# Google Gemini free API (OpenAI-compatible beta endpoint)
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=...
+
+# Local Ollama (no key; run `ollama pull llama3.2` first)
+LLM_PROVIDER=ollama
+LLM_MODEL=llama3.2
+
+# Any other OpenAI-compatible endpoint
+LLM_PROVIDER=custom
+LLM_BASE_URL=https://my-gateway.example/v1
+LLM_MODEL=my-model
+LLM_API_KEY=...
+```
+
+Notes: OpenRouter free tiers are rate-limited (roughly 20 req/min, 50–1000
+req/day) and free Gemini prompts may be used for training. All three accept the
+`response_format: {"type": "json_object"}` request; if a provider rejects JSON
+mode the client retries once without it. A trailing `/v1` (or `/v1beta/openai`)
+must be present on the base URL.
+
 ## Environment variables
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `LLM_BASE_URL` | OpenAI-compatible base URL | `https://api.openai.com/v1` |
-| `LLM_MODEL` | Model name (e.g. `gpt-4o-mini`) | `gpt-4o-mini` |
-| `LLM_API_KEY` | Provider API key (never logged/echoed) | _(empty)_ |
+| `LLM_PROVIDER` | Provider preset: `openai`/`openrouter`/`gemini`/`ollama`/`custom` | `openai` |
+| `LLM_BASE_URL` | Explicit OpenAI-compatible base URL override | preset |
+| `LLM_MODEL` | Explicit model override | preset |
+| `LLM_API_KEY` | Generic API key override (never logged/echoed) | _(empty)_ |
+| `OPENROUTER_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_API_KEY` | Provider-specific keys | _(empty)_ |
 | `PORT` | Bind port | `8000` |
 
 Secrets are read only from the environment. If the LLM is unreachable or
@@ -134,6 +181,19 @@ python scripts/run_public_samples.py --live --base-url http://localhost:8000
 `--offline` asserts our cost is within `0.01` BDT of the reference cost and that
 totals replay cleanly. `--live` never feeds expected answers; it validates the
 service's own `hourly_plan` via replay.
+
+To POST a single sample case, extract its `input` first (the file is an object
+with a `cases` array):
+
+```powershell
+$case = (Get-Content ".docs\BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json" -Raw | ConvertFrom-Json).cases[0]
+$case.input | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 request.json
+curl.exe -X POST http://localhost:8000/optimize-energy -H "Content-Type: application/json" --data "@request.json"
+```
+
+> If the logs show `LLM interpretation failed; using no_op fallback`, the service
+> is silently ignoring every note and the `--live` costs are not meaningful. Set
+> `LLM_DEBUG=1` to log the raw provider response and diagnose the shape.
 
 ## Docker
 

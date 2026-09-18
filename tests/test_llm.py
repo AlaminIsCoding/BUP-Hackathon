@@ -167,3 +167,75 @@ def test_empty_notes_returns_empty(mocker) -> None:
     post = mocker.patch("app.llm.interpreter.httpx.post")
     assert interpreter.interpret_notes([], BATTERY, make_settings()) == []
     post.assert_not_called()
+
+
+def test_prose_wrapped_array_is_extracted(mocker) -> None:
+    prose = "Sure! Here is the JSON array:\n" + json.dumps(ENTRIES) + "\nLet me know if you need more."
+    mocker.patch("app.llm.interpreter.httpx.post", return_value=content_response(prose))
+    assert interpreter.interpret_notes(["x"], BATTERY, make_settings()) == ENTRIES
+
+
+def test_single_directive_object_is_wrapped(mocker) -> None:
+    mocker.patch(
+        "app.llm.interpreter.httpx.post", return_value=json_response(ENTRIES[0])
+    )
+    assert interpreter.interpret_notes(["x"], BATTERY, make_settings()) == ENTRIES
+
+
+def test_numeric_keyed_object_is_normalized(mocker) -> None:
+    payload = {"0": ENTRIES[0], "1": {**ENTRIES[0], "note_index": 1}}
+    mocker.patch("app.llm.interpreter.httpx.post", return_value=json_response(payload))
+    result = interpreter.interpret_notes(["a", "b"], BATTERY, make_settings())
+    assert [entry["note_index"] for entry in result] == [0, 1]
+
+
+def test_content_parts_list_is_flattened(mocker) -> None:
+    parts = [{"type": "text", "text": json.dumps(ENTRIES)}]
+    mocker.patch(
+        "app.llm.interpreter.httpx.post",
+        return_value=FakeResponse(
+            200, {"choices": [{"message": {"content": parts}}]}
+        ),
+    )
+    assert interpreter.interpret_notes(["x"], BATTERY, make_settings()) == ENTRIES
+
+
+def test_debug_mode_logs_raw_content(mocker, caplog, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_DEBUG", "1")
+    mocker.patch(
+        "app.llm.interpreter.httpx.post", return_value=json_response(ENTRIES)
+    )
+    with caplog.at_level(logging.WARNING):
+        interpreter.interpret_notes(["x"], BATTERY, make_settings())
+    assert "LLM raw content" in caplog.text
+    assert "LLM provider=" in caplog.text
+
+
+def test_wrapper_with_multiple_notes(mocker) -> None:
+    entries = [ENTRIES[0], {**ENTRIES[0], "note_index": 1}]
+    mocker.patch(
+        "app.llm.interpreter.httpx.post",
+        return_value=json_response({"directives": entries}),
+    )
+    result = interpreter.interpret_notes(["a", "b"], BATTERY, make_settings())
+    assert [entry["note_index"] for entry in result] == [0, 1]
+
+
+def test_concatenated_objects_are_collected(mocker) -> None:
+    content = json.dumps(ENTRIES[0]) + "\n" + json.dumps(
+        {**ENTRIES[0], "note_index": 1}
+    )
+    mocker.patch("app.llm.interpreter.httpx.post", return_value=content_response(content))
+    result = interpreter.interpret_notes(["a", "b"], BATTERY, make_settings())
+    assert [entry["note_index"] for entry in result] == [0, 1]
+
+
+def test_count_mismatch_retries_then_falls_back(mocker) -> None:
+    mocker.patch("app.llm.interpreter.time.sleep")
+    post = mocker.patch(
+        "app.llm.interpreter.httpx.post", return_value=json_response(ENTRIES)
+    )
+    result = interpreter.interpret_notes(["a", "b"], BATTERY, make_settings())
+    assert post.call_count == 2
+    assert len(result) == 2
+    assert all(entry["directive_type"] == "no_op" for entry in result)
