@@ -245,7 +245,8 @@ curl.exe -X POST http://localhost:8000/optimize-energy -H "Content-Type: applica
 
 > If the logs show `LLM interpretation failed; using no_op fallback`, the service
 > is silently ignoring every note and the `--live` costs are not meaningful. Set
-> `LLM_DEBUG=1` to log the raw provider response and diagnose the shape.
+> `LLM_DEBUG=1` to log provider metadata and the parsed directive count. Raw model
+> responses are intentionally never written to logs.
 
 ## Docker
 
@@ -284,6 +285,31 @@ etc.), e.g. `youruser/gridwise:2026-09-18` or the immutable digest
 `LLM_PROVIDER`, the provider key (e.g. `OPENROUTER_API_KEY`) or `LLM_API_KEY`,
 and optionally `LLM_MODEL`, `LLM_BASE_URL`, and `PORT`.
 
+### Build Without Local Docker
+
+`.github/workflows/publish-image.yml` builds and smoke-tests the image on a
+GitHub-hosted runner, then publishes it to GitHub Container Registry. Docker is
+not required on the development machine.
+
+After this repository is connected to GitHub:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The workflow publishes:
+
+```text
+ghcr.io/<github-owner>/<repository>:v1.0.0
+ghcr.io/<github-owner>/<repository>:sha-<commit-sha>
+```
+
+Use the immutable `sha256` digest shown in the completed workflow when filling
+the final submission form. Make the package public in GitHub package settings so
+organizers can pull it without credentials. The workflow runs `/health` inside
+the image before completing.
+
 The image bundles `scripts/` and `.docs/`, so the public-sample harness also runs
 inside the container:
 
@@ -319,8 +345,8 @@ optimization model, or replay — those are original to this project.
 
 - If the model returns malformed output that survives retries, the affected note
   degrades to `no_op` rather than failing the request (safe failure).
-- If a provider returns fewer directives than notes, only the valid prefix is
-  kept; missing notes become `no_op`.
+- If a provider returns fewer directives than notes, the complete interpretation
+  falls back to `no_op` for every note instead of applying a partial result.
 - Windows-local CBC is provided by PuLP; the Docker image installs the system
   `coinor-cbc` for Linux parity.
 - Latency is dominated by the hosted LLM; a provider outage makes every note fall

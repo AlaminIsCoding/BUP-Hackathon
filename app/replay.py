@@ -93,12 +93,6 @@ def validate_and_totals(
                 h,
                 "battery_kwh must be zero when battery_action is idle",
             )
-        else:
-            _check(
-                float(entry.battery_kwh) > TOLERANCE,
-                h,
-                "battery_kwh must be positive for a non-idle action",
-            )
 
         _check(
             abs((grid_value + solar_value + discharge_value) - (demand + charge_value))

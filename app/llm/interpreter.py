@@ -206,16 +206,13 @@ def _request_directives(
 
     if os.getenv("LLM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
         logger.warning(
-            "LLM provider=%s model=%s base_url=%s expected=%s",
+            "LLM provider=%s model=%s expected=%s",
             settings.llm_provider,
             settings.llm_model,
-            settings.llm_base_url,
             expected_count,
         )
 
     deadline = time.monotonic() + TOTAL_LLM_BUDGET_SECONDS
-    best_partial: Optional[list] = None
-
     for attempt in range(MAX_ATTEMPTS):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -239,13 +236,11 @@ def _request_directives(
             response.raise_for_status()
             payload = response.json()
             content = payload["choices"][0]["message"]["content"]
-            if os.getenv("LLM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
-                raw = _content_text(content)
-                logger.warning("LLM raw content (len=%d): %s", len(raw), raw[:2000])
             entries = _sort_entries(_parse_directives(content))
+            if os.getenv("LLM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
+                logger.warning("LLM response parsed: directives=%d", len(entries))
             if expected_count is None or len(entries) == expected_count:
                 return entries
-            best_partial = entries
             raise LLMError(
                 f"expected {expected_count} directives but received {len(entries)}"
             )
@@ -264,11 +259,6 @@ def _request_directives(
                 type(exc).__name__,
             )
 
-    if best_partial:
-        logger.warning(
-            "Using partial interpretation with %d entr(y/ies)", len(best_partial)
-        )
-        return best_partial
     raise LLMError("provider did not return usable directives")
 
 

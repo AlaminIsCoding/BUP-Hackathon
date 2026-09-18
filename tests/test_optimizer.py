@@ -12,6 +12,7 @@ from app.schemas import (
     BatteryAction,
     DirectiveInterpretation,
     DirectiveType,
+    HourlyPlan,
     OptimizeRequest,
     StructuredAdjustment,
 )
@@ -120,6 +121,39 @@ def test_arbitrary_precision_scenario_replays_cleanly() -> None:
     assert plan[23].battery_energy_after_kwh == pytest.approx(
         request.battery.initial_energy_kwh, abs=0.01
     )
+
+
+def test_replay_accepts_small_non_idle_flows() -> None:
+    request = make_request()
+    plan = [
+        HourlyPlan(
+            hour=hour,
+            grid_kwh=100.0,
+            solar_used_kwh=0.0,
+            battery_action=BatteryAction.IDLE,
+            battery_kwh=0.0,
+            battery_energy_after_kwh=100.0,
+        )
+        for hour in range(24)
+    ]
+    plan[0] = HourlyPlan(
+        hour=0,
+        grid_kwh=99.995,
+        solar_used_kwh=0.0,
+        battery_action=BatteryAction.DISCHARGE,
+        battery_kwh=0.005,
+        battery_energy_after_kwh=99.995,
+    )
+    plan[1] = HourlyPlan(
+        hour=1,
+        grid_kwh=100.005,
+        solar_used_kwh=0.0,
+        battery_action=BatteryAction.CHARGE,
+        battery_kwh=0.005,
+        battery_energy_after_kwh=100.0,
+    )
+
+    validate_and_totals(plan, request, [])
 
 
 def test_solar_reduction_caps_usable_solar() -> None:

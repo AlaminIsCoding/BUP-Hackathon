@@ -200,15 +200,17 @@ def test_content_parts_list_is_flattened(mocker) -> None:
     assert interpreter.interpret_notes(["x"], BATTERY, make_settings()) == ENTRIES
 
 
-def test_debug_mode_logs_raw_content(mocker, caplog, monkeypatch) -> None:
+def test_debug_mode_does_not_log_raw_content(mocker, caplog, monkeypatch) -> None:
     monkeypatch.setenv("LLM_DEBUG", "1")
     mocker.patch(
         "app.llm.interpreter.httpx.post", return_value=json_response(ENTRIES)
     )
     with caplog.at_level(logging.WARNING):
         interpreter.interpret_notes(["x"], BATTERY, make_settings())
-    assert "LLM raw content" in caplog.text
+    assert "LLM raw content" not in caplog.text
+    assert "80% reduction leaves 20% usable." not in caplog.text
     assert "LLM provider=" in caplog.text
+    assert "base_url=" not in caplog.text
 
 
 def test_wrapper_with_multiple_notes(mocker) -> None:
@@ -230,12 +232,14 @@ def test_concatenated_objects_are_collected(mocker) -> None:
     assert [entry["note_index"] for entry in result] == [0, 1]
 
 
-def test_count_mismatch_retries_then_returns_partial(mocker) -> None:
+def test_count_mismatch_retries_then_falls_back_for_all_notes(mocker) -> None:
     mocker.patch("app.llm.interpreter.time.sleep")
     post = mocker.patch(
         "app.llm.interpreter.httpx.post", return_value=json_response(ENTRIES)
     )
     result = interpreter.interpret_notes(["a", "b"], BATTERY, make_settings())
     assert post.call_count == 2
-    assert [entry["note_index"] for entry in result] == [0]
-    assert result[0]["directive_type"] == "solar_reduction"
+    assert len(result) == 2
+    assert [entry["note_index"] for entry in result] == [0, 1]
+    assert all(entry["directive_type"] == "no_op" for entry in result)
+    assert all(entry["applies"] is False for entry in result)
