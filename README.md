@@ -4,6 +4,19 @@ An HTTP service that turns free-text operator notes plus a 24-hour energy
 scenario into a validated, cost-optimal battery/grid/solar schedule. Built for
 the BUP CSE Fest 2026 preliminary submission.
 
+## Deployed Submission
+
+| Artifact | Reference |
+| --- | --- |
+| API base URL | `https://bup-hackathon-rwx8.onrender.com` |
+| Health check | `https://bup-hackathon-rwx8.onrender.com/health` |
+| Source repository | `https://github.com/AlaminIsCoding/BUP-Hackathon` |
+| Published image | `ghcr.io/alaminiscoding/bup-hackathon:v1.0.0` |
+| Immutable image | `ghcr.io/alaminiscoding/bup-hackathon@sha256:409d4e610c805d728574ef390550d8fc63da1b8d29c3362f165417da1ec39a66` |
+
+The API and image were smoke-tested after deployment. The GHCR package is
+public and can be pulled without credentials.
+
 ## What it does
 
 1. Accepts the scenario JSON (24 hours + battery spec + 1–3 notes).
@@ -113,15 +126,22 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### Deploy on Render
 
-The repository includes `render.yaml` for a free Render web service. In the
-Render dashboard, create a new Blueprint from this repository and provide
-`OPENROUTER_API_KEY` when prompted. Render supplies `PORT`; the Blueprint uses
-the required build command, start command, and `/health` health check.
+The repository includes `render.yaml` for a free Render web service. The
+deployed service uses these environment variables:
 
-After deployment, verify the public base URL:
+```env
+LLM_PROVIDER=openrouter
+LLM_MODEL=deepseek/deepseek-v4.1-flash
+OPENROUTER_API_KEY=<secret>
+```
+
+Render supplies `PORT`; the Blueprint uses the required build command, start
+command, and `/health` health check. Never commit the API key.
+
+Verify the deployed service:
 
 ```bash
-curl https://<service-name>.onrender.com/health
+curl https://bup-hackathon-rwx8.onrender.com/health
 # {"status":"ok"}
 ```
 
@@ -280,27 +300,26 @@ curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-### Fallback image (required submission artifact)
+### Published submission image
 
-Push the tested image once so organizers can pull it during evaluation:
+The tested image is published to GHCR and is publicly pullable:
 
 ```bash
-docker login
-docker build -t <registry>/gridwise:<tag> .
-docker push <registry>/gridwise:<tag>
+docker pull ghcr.io/alaminiscoding/bup-hackathon@sha256:409d4e610c805d728574ef390550d8fc63da1b8d29c3362f165417da1ec39a66
+```
 
-# Judge fallback path, from a clean machine:
-docker pull <registry>/gridwise:<tag>
-docker run -p 8000:8000 --env-file .env <registry>/gridwise:<tag>
+Judge fallback path, from a clean machine:
+
+```bash
+docker run -p 8000:8000 --env-file .env \
+  ghcr.io/alaminiscoding/bup-hackathon@sha256:409d4e610c805d728574ef390550d8fc63da1b8d29c3362f165417da1ec39a66
 curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-Replace `<registry>/gridwise:<tag>` with your real reference (Docker Hub, GHCR,
-etc.), e.g. `youruser/gridwise:2026-09-18` or the immutable digest
-`youruser/gridwise@sha256:...`. Required container environment variables:
-`LLM_PROVIDER`, the provider key (e.g. `OPENROUTER_API_KEY`) or `LLM_API_KEY`,
-and optionally `LLM_MODEL`, `LLM_BASE_URL`, and `PORT`.
+Required container environment variables are `LLM_PROVIDER`, the provider key
+(for example `OPENROUTER_API_KEY`) or `LLM_API_KEY`, and optionally `LLM_MODEL`,
+`LLM_BASE_URL`, and `PORT`.
 
 ### Build Without Local Docker
 
@@ -308,7 +327,7 @@ and optionally `LLM_MODEL`, `LLM_BASE_URL`, and `PORT`.
 GitHub-hosted runner, then publishes it to GitHub Container Registry. Docker is
 not required on the development machine.
 
-After this repository is connected to GitHub:
+To publish a new version:
 
 ```bash
 git tag v1.0.0
@@ -322,10 +341,8 @@ ghcr.io/<github-owner>/<repository>:v1.0.0
 ghcr.io/<github-owner>/<repository>:sha-<commit-sha>
 ```
 
-Use the immutable `sha256` digest shown in the completed workflow when filling
-the final submission form. Make the package public in GitHub package settings so
-organizers can pull it without credentials. The workflow runs `/health` inside
-the image before completing.
+Use the immutable digest shown in the completed workflow when filling the final
+submission form. The workflow runs `/health` inside the image before completing.
 
 The image bundles `scripts/` and `.docs/`, so the public-sample harness also runs
 inside the container:
@@ -368,5 +385,5 @@ optimization model, or replay — those are original to this project.
   `coinor-cbc` for Linux parity.
 - Latency is dominated by the hosted LLM; a provider outage makes every note fall
   back to `no_op` (the service stays up and valid).
-- The 3-minute video is required only as a tie-break artifact and is submitted
-  separately.
+- A 3-minute architecture video, if required by the event form, is an external
+  submission artifact and is not part of this repository.
