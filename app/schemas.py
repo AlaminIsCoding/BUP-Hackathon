@@ -1,6 +1,7 @@
 """Pydantic v2 models: the single source of truth for request/response shapes.
 
-Mirrors PRD sections 4.2 (request) and 4.3 (response).
+Mirrors the Problem Statement request schema (section 07) and response schema
+(section 10).
 """
 
 from __future__ import annotations

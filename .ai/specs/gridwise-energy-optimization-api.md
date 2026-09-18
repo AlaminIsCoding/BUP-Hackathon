@@ -13,14 +13,17 @@ A Python service exposing `GET /health` and `POST /optimize-energy` that:
 3. Deterministically validates/cleans LLM output (untrusted) before use.
 4. Solves a MILP for the cheapest feasible 24-hour schedule.
 5. Replays the schedule to verify every constraint and recomputes totals.
-6. Returns the exact response schema in PRD §4.3.
+6. Returns the exact response schema from the Problem Statement (§10).
 
 Done when `pytest` passes, the public sample harness reproduces reference costs within tolerance, and the Docker image reaches `/health`.
 
 ## Context
 
+**Source of truth:** the three files in `.docs/` (Problem Statement, Participant Guide, Public Sample Cases). `PRD.md` is internal design notes only and is **not** authoritative where it disagrees with `.docs`.
+
 **Relevant files (reference only, do not modify):**
-- `PRD.md` — authoritative requirements (schemas §4.2/§4.3, directives §4.4, guardrails §4.5, model §4.6, output §4.7).
+- `.docs/BUP_CSE_FEST_2026_Preliminary_Problem_Statement_GridWise_LLM.pdf` — authoritative schemas, directives, guardrails, and optimization rules.
+- `PRD.md` — non-authoritative internal design notes.
 - `.docs/BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json` — 10 worked cases with expected directives and reference schedules; used by the regression harness. All reference `total_cost_bdt` values reconcile exactly with their `hourly_plan`, but schedules are non-unique, so compare cost within tolerance rather than byte-for-byte.
 - `.docs/*.pdf` — problem statement + participant guide (informational; do not parse at runtime).
 

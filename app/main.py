@@ -87,7 +87,9 @@ async def optimize_energy(request: Request):
     try:
         parsed = OptimizeRequest.model_validate(payload)
     except ValidationError as exc:
-        return _error(422, "Request failed validation", _safe_errors(exc))
+        # Problem Statement 6.1: 400 for malformed or structurally invalid
+        # requests; 422 is optional, so 400 is used for all validation failures.
+        return _error(400, "Request failed validation", _safe_errors(exc))
 
     try:
         directives, plan, totals = await run_in_threadpool(_run_pipeline, parsed)

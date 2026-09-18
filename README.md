@@ -11,7 +11,7 @@ the BUP CSE Fest 2026 preliminary submission.
 3. Deterministically validates/cleans the untrusted LLM output.
 4. Solves a MILP for the cheapest feasible 24-hour schedule.
 5. Replays the schedule to verify every constraint and recompute totals.
-6. Returns the response schema defined in `PRD.md` §4.3.
+6. Returns the response schema defined in the Problem Statement (§10).
 
 ## Architecture
 
@@ -162,6 +162,56 @@ curl -X POST http://localhost:8000/optimize-energy \
   }'
 ```
 
+### Sample response
+
+Real output for the request above (with `LLM_PROVIDER=openrouter`; directive text
+and explanations vary by model, the schedule is a valid optimal plan):
+
+```json
+{
+  "scenario_id": "DEMO-01",
+  "directive_interpretation": [
+    {
+      "note_index": 0,
+      "applies": true,
+      "directive_type": "solar_reduction",
+      "structured_adjustment": {"hours": [12, 13], "factor": 0.25},
+      "explanation": "75% reduction leaves 25% usable solar in hours 12-13."
+    }
+  ],
+  "hourly_plan": [
+    {"hour": 0,  "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 110.0},
+    {"hour": 1,  "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 110.0},
+    {"hour": 2,  "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 110.0},
+    {"hour": 3,  "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 110.0},
+    {"hour": 4,  "grid_kwh": 140.0, "solar_used_kwh": 0.0,   "battery_action": "charge",    "battery_kwh": 50.0, "battery_energy_after_kwh": 160.0},
+    {"hour": 5,  "grid_kwh": 140.0, "solar_used_kwh": 0.0,   "battery_action": "charge",    "battery_kwh": 50.0, "battery_energy_after_kwh": 210.0},
+    {"hour": 6,  "grid_kwh": 100.0, "solar_used_kwh": 0.0,   "battery_action": "charge",    "battery_kwh": 10.0, "battery_energy_after_kwh": 220.0},
+    {"hour": 7,  "grid_kwh": 30.0,  "solar_used_kwh": 10.0,  "battery_action": "discharge", "battery_kwh": 50.0, "battery_energy_after_kwh": 170.0},
+    {"hour": 8,  "grid_kwh": 0.0,   "solar_used_kwh": 40.0,  "battery_action": "discharge", "battery_kwh": 50.0, "battery_energy_after_kwh": 120.0},
+    {"hour": 9,  "grid_kwh": 0.0,   "solar_used_kwh": 80.0,  "battery_action": "discharge", "battery_kwh": 10.0, "battery_energy_after_kwh": 110.0},
+    {"hour": 10, "grid_kwh": 0.0,   "solar_used_kwh": 120.0, "battery_action": "charge",    "battery_kwh": 30.0, "battery_energy_after_kwh": 140.0},
+    {"hour": 11, "grid_kwh": 0.0,   "solar_used_kwh": 140.0, "battery_action": "charge",    "battery_kwh": 50.0, "battery_energy_after_kwh": 190.0},
+    {"hour": 12, "grid_kwh": 2.5,   "solar_used_kwh": 37.5,  "battery_action": "discharge", "battery_kwh": 50.0, "battery_energy_after_kwh": 140.0},
+    {"hour": 13, "grid_kwh": 5.0,   "solar_used_kwh": 35.0,  "battery_action": "discharge", "battery_kwh": 50.0, "battery_energy_after_kwh": 90.0},
+    {"hour": 14, "grid_kwh": 0.0,   "solar_used_kwh": 110.0, "battery_action": "charge",    "battery_kwh": 20.0, "battery_energy_after_kwh": 110.0},
+    {"hour": 15, "grid_kwh": 0.0,   "solar_used_kwh": 70.0,  "battery_action": "discharge", "battery_kwh": 20.0, "battery_energy_after_kwh": 90.0},
+    {"hour": 16, "grid_kwh": 10.0,  "solar_used_kwh": 30.0,  "battery_action": "discharge", "battery_kwh": 50.0, "battery_energy_after_kwh": 40.0},
+    {"hour": 17, "grid_kwh": 85.0,  "solar_used_kwh": 5.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 40.0},
+    {"hour": 18, "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 40.0},
+    {"hour": 19, "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 40.0},
+    {"hour": 20, "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 40.0},
+    {"hour": 21, "grid_kwh": 90.0,  "solar_used_kwh": 0.0,   "battery_action": "idle",      "battery_kwh": 0.0,  "battery_energy_after_kwh": 40.0},
+    {"hour": 22, "grid_kwh": 110.0, "solar_used_kwh": 0.0,   "battery_action": "charge",    "battery_kwh": 20.0, "battery_energy_after_kwh": 60.0},
+    {"hour": 23, "grid_kwh": 140.0, "solar_used_kwh": 0.0,   "battery_action": "charge",    "battery_kwh": 50.0, "battery_energy_after_kwh": 110.0}
+  ],
+  "total_grid_kwh": 1482.5,
+  "total_cost_bdt": 9232.5,
+  "peak_grid_kwh": 140.0,
+  "plan_summary": "Applied solar_reduction on hour(s) 12-13 (usable factor 0.25). Total grid 1482.50 kWh, cost 9232.50 BDT, peak grid 140.00 kWh."
+}
+```
+
 ## Tests
 
 ```bash
@@ -260,9 +310,10 @@ Installed from `requirements.txt`: `fastapi`, `uvicorn[standard]` (server),
 `pydantic` v2 (schemas/validation), `httpx` (LLM HTTP client), `pulp` + bundled
 CBC (MILP solver; `coinor-cbc` installed in the image), `python-dotenv` (local
 `.env` loading), and `pytest`/`pytest-mock` (tests only). The LLM is any
-OpenAI-compatible Chat Completions endpoint selected via `LLM_PROVIDER`; we use
-OpenRouter by default. No third-party code implements the directive logic,
-guardrails, optimization model, or replay — those are original to this project.
+OpenAI-compatible Chat Completions endpoint selected via `LLM_PROVIDER`; the
+code default is `openai`, while the shipped `.env.example`/our deployment selects
+`openrouter`. No third-party code implements the directive logic, guardrails,
+optimization model, or replay — those are original to this project.
 
 ## Known limitations
 

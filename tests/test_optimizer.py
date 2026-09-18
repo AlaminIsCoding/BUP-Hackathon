@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from app.optimizer import OptimizationError, derive_constraints, optimize
@@ -87,6 +89,37 @@ def test_no_directive_plan_is_valid_and_neutral() -> None:
     )
     recomputed_grid = round(sum(entry.grid_kwh for entry in plan), 2)
     assert totals.total_grid_kwh == pytest.approx(recomputed_grid, abs=0.01)
+
+
+def test_arbitrary_precision_scenario_replays_cleanly() -> None:
+    """Rounding must not drift the replayed battery state beyond tolerance."""
+
+    request = OptimizeRequest.model_validate(
+        {
+            "scenario_id": "PRECISION",
+            "operator_notes": ["no directive"],
+            "hours": [
+                {
+                    "hour": h,
+                    "demand_kwh": 100.0 + 0.1234567 * h,
+                    "solar_kwh": max(0.0, 50.0 * math.sin(h / 3.0)),
+                    "tariff_bdt_per_kwh": 5.0 + 0.9876543 * (h % 7),
+                }
+                for h in range(24)
+            ],
+            "battery": {
+                "capacity_kwh": 173.3333333,
+                "initial_energy_kwh": 88.1234567,
+                "minimum_energy_kwh": 12.9876543,
+                "max_charge_kwh_per_hour": 43.3333333,
+                "max_discharge_kwh_per_hour": 47.7777777,
+            },
+        }
+    )
+    plan, _ = _run(request, [])
+    assert plan[23].battery_energy_after_kwh == pytest.approx(
+        request.battery.initial_energy_kwh, abs=0.01
+    )
 
 
 def test_solar_reduction_caps_usable_solar() -> None:

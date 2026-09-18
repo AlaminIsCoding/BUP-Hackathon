@@ -1,7 +1,8 @@
 """MILP optimizer for the 24-hour battery/grid/solar schedule.
 
-Builds the model described in PRD section 4.6 with PuLP/CBC and emits a rounded
-hourly plan. Constraint replay lives in :mod:`app.replay`.
+Builds the model from the Problem Statement battery/energy rules (section 09)
+with PuLP/CBC and emits a rounded hourly plan. Constraint replay lives in
+:mod:`app.replay`.
 """
 
 from __future__ import annotations
@@ -23,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 HOURS = list(range(24))
 SOLVER_TIME_LIMIT_SECONDS = 8
-ROUND_DECIMALS = 2
+# Flows are rounded to 6 decimals. Independent per-hour rounding of charge and
+# discharge can drift the replayed battery state by up to 24 * 0.5 * 10^-6 =
+# 1.2e-5 kWh over the horizon, which is far below the 0.01 kWh judge tolerance.
+# Rounding to 2 decimals could drift up to 0.12 kWh and wrongly fail replay.
+ROUND_DECIMALS = 6
 
 
 class OptimizationError(RuntimeError):

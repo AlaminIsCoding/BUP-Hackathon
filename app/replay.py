@@ -1,7 +1,7 @@
 """Replay and final validation of an optimized hourly plan.
 
-Independently reconstructs battery flows, re-checks every PRD section 4.6
-constraint, and recomputes totals from the rounded plan.
+Independently reconstructs battery flows, re-checks every Problem Statement
+battery/energy constraint (section 09), and recomputes totals from the plan.
 """
 
 from __future__ import annotations
@@ -87,11 +87,18 @@ def validate_and_totals(
         ):
             _check(value >= -TOLERANCE, h, f"{name} must be non-negative")
 
-        _check(
-            entry.battery_action == BatteryAction.IDLE or entry.battery_kwh > 0,
-            h,
-            "battery_action must be idle when battery_kwh is zero",
-        )
+        if entry.battery_action == BatteryAction.IDLE:
+            _check(
+                float(entry.battery_kwh) <= TOLERANCE,
+                h,
+                "battery_kwh must be zero when battery_action is idle",
+            )
+        else:
+            _check(
+                float(entry.battery_kwh) > TOLERANCE,
+                h,
+                "battery_kwh must be positive for a non-idle action",
+            )
 
         _check(
             abs((grid_value + solar_value + discharge_value) - (demand + charge_value))

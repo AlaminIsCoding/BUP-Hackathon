@@ -163,11 +163,11 @@ def test_optimize_non_object_body_returns_400() -> None:
     assert response.status_code == 400
 
 
-def test_optimize_hour_violation_returns_422(llm_env) -> None:
+def test_optimize_hour_violation_returns_400(llm_env) -> None:
     payload = _valid_request()
     payload["hours"].pop()
     response = client.post("/optimize-energy", json=payload)
-    assert response.status_code in (400, 422)
+    assert response.status_code == 400
 
 
 def test_optimize_llm_failure_still_returns_200(mocker, llm_env) -> None:
