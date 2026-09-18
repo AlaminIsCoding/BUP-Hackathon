@@ -36,15 +36,45 @@ def _is_number(value: Any) -> bool:
     )
 
 
+def _coerce_number(value: Any) -> Optional[float]:
+    """Return a finite float for numbers or numeric strings, else None."""
+
+    if _is_number(value):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            parsed = float(value.strip())
+        except ValueError:
+            return None
+        if math.isfinite(parsed):
+            return parsed
+    return None
+
+
+def _coerce_hour(item: Any) -> Optional[int]:
+    if isinstance(item, bool):
+        return None
+    if isinstance(item, int):
+        return item
+    if isinstance(item, str):
+        text = item.strip()
+        if text.lstrip("-").isdigit():
+            return int(text)
+    return None
+
+
 def _parse_hours(value: Any) -> Optional[list[int]]:
     """Normalize hours to a sorted, de-duplicated list, or None if invalid."""
 
     if not isinstance(value, list) or not value:
         return None
+    hours: list[int] = []
     for item in value:
-        if isinstance(item, bool) or not isinstance(item, int) or not 0 <= item <= 23:
+        hour = _coerce_hour(item)
+        if hour is None or not 0 <= hour <= 23:
             return None
-    return sorted(set(value))
+        hours.append(hour)
+    return sorted(set(hours))
 
 
 def _make_no_op(note_index: int, explanation: str) -> DirectiveInterpretation:
@@ -109,20 +139,20 @@ def _validate_candidate(
     explanation = _clean_explanation(candidate.get("explanation"), directive_type)
 
     if directive_type == DirectiveType.SOLAR_REDUCTION.value:
-        factor = adjustment.get("factor")
-        if not _is_number(factor) or not 0 <= factor <= 1:
+        factor = _coerce_number(adjustment.get("factor"))
+        if factor is None or not 0 <= factor <= 1:
             raise ValueError("factor must be a number in [0, 1]")
-        structured = StructuredAdjustment(hours=hours, factor=float(factor))
+        structured = StructuredAdjustment(hours=hours, factor=factor)
     elif directive_type == DirectiveType.MINIMUM_BATTERY_RESERVE.value:
-        minimum = adjustment.get("minimum_energy_kwh")
-        if not _is_number(minimum) or not 0 <= minimum <= capacity_kwh:
+        minimum = _coerce_number(adjustment.get("minimum_energy_kwh"))
+        if minimum is None or not 0 <= minimum <= capacity_kwh:
             raise ValueError("minimum_energy_kwh must be in [0, capacity_kwh]")
-        structured = StructuredAdjustment(hours=hours, minimum_energy_kwh=float(minimum))
+        structured = StructuredAdjustment(hours=hours, minimum_energy_kwh=minimum)
     elif directive_type == DirectiveType.MAX_GRID_WINDOW.value:
-        max_grid = adjustment.get("max_grid_kwh")
-        if not _is_number(max_grid) or max_grid < 0:
+        max_grid = _coerce_number(adjustment.get("max_grid_kwh"))
+        if max_grid is None or max_grid < 0:
             raise ValueError("max_grid_kwh must be a non-negative number")
-        structured = StructuredAdjustment(hours=hours, max_grid_kwh=float(max_grid))
+        structured = StructuredAdjustment(hours=hours, max_grid_kwh=max_grid)
     else:
         structured = StructuredAdjustment(hours=hours)
 

@@ -22,7 +22,7 @@ from app.schemas import (
 logger = logging.getLogger(__name__)
 
 HOURS = list(range(24))
-SOLVER_TIME_LIMIT_SECONDS = 10
+SOLVER_TIME_LIMIT_SECONDS = 8
 ROUND_DECIMALS = 2
 
 

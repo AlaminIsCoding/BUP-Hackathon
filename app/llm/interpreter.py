@@ -21,7 +21,8 @@ from app.schemas import BatterySpec
 
 logger = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT_SECONDS = 20.0
+REQUEST_TIMEOUT_SECONDS = 12.0
+TOTAL_LLM_BUDGET_SECONDS = 21.0
 MAX_ATTEMPTS = 2
 BACKOFF_BASE_SECONDS = 0.5
 BACKOFF_FACTOR = 2
@@ -162,6 +163,18 @@ def _parse_directives(content: Any) -> list[dict]:
     return entries
 
 
+def _sort_entries(entries: list) -> list:
+    """Order directive objects by note_index when every index is a plain int."""
+
+    if entries and all(isinstance(entry, dict) for entry in entries) and all(
+        isinstance(entry.get("note_index"), int)
+        and not isinstance(entry.get("note_index"), bool)
+        for entry in entries
+    ):
+        return sorted(entries, key=lambda entry: entry["note_index"])
+    return entries
+
+
 def _fallback(notes: list[str]) -> list[dict]:
     return [
         {
@@ -200,15 +213,23 @@ def _request_directives(
             expected_count,
         )
 
+    deadline = time.monotonic() + TOTAL_LLM_BUDGET_SECONDS
+    best_partial: Optional[list] = None
+
     for attempt in range(MAX_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.warning("LLM time budget exhausted before attempt %d", attempt + 1)
+            break
         if attempt > 0:
             time.sleep(BACKOFF_BASE_SECONDS * (BACKOFF_FACTOR ** (attempt - 1)))
         body = dict(base_body)
         if attempt == 0:
             body["response_format"] = {"type": "json_object"}
+        timeout = min(REQUEST_TIMEOUT_SECONDS, max(0.1, remaining))
         try:
             response = httpx.post(
-                url, json=body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS
+                url, json=body, headers=headers, timeout=timeout
             )
             if response.status_code == 400 and attempt == 0:
                 logger.warning(
@@ -221,12 +242,13 @@ def _request_directives(
             if os.getenv("LLM_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}:
                 raw = _content_text(content)
                 logger.warning("LLM raw content (len=%d): %s", len(raw), raw[:2000])
-            entries = _parse_directives(content)
-            if expected_count is not None and len(entries) != expected_count:
-                raise LLMError(
-                    f"expected {expected_count} directives but received {len(entries)}"
-                )
-            return entries
+            entries = _sort_entries(_parse_directives(content))
+            if expected_count is None or len(entries) == expected_count:
+                return entries
+            best_partial = entries
+            raise LLMError(
+                f"expected {expected_count} directives but received {len(entries)}"
+            )
         except (
             httpx.HTTPError,
             LLMError,
@@ -242,6 +264,11 @@ def _request_directives(
                 type(exc).__name__,
             )
 
+    if best_partial:
+        logger.warning(
+            "Using partial interpretation with %d entr(y/ies)", len(best_partial)
+        )
+        return best_partial
     raise LLMError("provider did not return usable directives")
 
 

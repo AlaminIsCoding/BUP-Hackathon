@@ -230,12 +230,12 @@ def test_concatenated_objects_are_collected(mocker) -> None:
     assert [entry["note_index"] for entry in result] == [0, 1]
 
 
-def test_count_mismatch_retries_then_falls_back(mocker) -> None:
+def test_count_mismatch_retries_then_returns_partial(mocker) -> None:
     mocker.patch("app.llm.interpreter.time.sleep")
     post = mocker.patch(
         "app.llm.interpreter.httpx.post", return_value=json_response(ENTRIES)
     )
     result = interpreter.interpret_notes(["a", "b"], BATTERY, make_settings())
     assert post.call_count == 2
-    assert len(result) == 2
-    assert all(entry["directive_type"] == "no_op" for entry in result)
+    assert [entry["note_index"] for entry in result] == [0]
+    assert result[0]["directive_type"] == "solar_reduction"

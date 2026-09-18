@@ -41,6 +41,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # then fill in values
+# `.env` is loaded automatically by app.config (python-dotenv); no manual export needed.
 ```
 
 ## Choosing an LLM provider
@@ -99,9 +100,10 @@ must be present on the base URL.
 | `OPENROUTER_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_API_KEY` | Provider-specific keys | _(empty)_ |
 | `PORT` | Bind port | `8000` |
 
-Secrets are read only from the environment. If the LLM is unreachable or
+Secrets are read only from the environment or a local `.env` (which is
+git-ignored and excluded from the Docker image). If the LLM is unreachable or
 unconfigured, every note safely falls back to `no_op` and the service still
-returns a valid schedule.
+returns a valid schedule. Precedence: real environment variables win over `.env`.
 
 ## Run
 
@@ -197,21 +199,80 @@ curl.exe -X POST http://localhost:8000/optimize-energy -H "Content-Type: applica
 
 ## Docker
 
+The image installs `coinor-cbc`, binds `0.0.0.0`, and honors `PORT`. No secrets
+are baked into the image: `.env` is excluded via `.dockerignore`, so credentials
+must be supplied at run time with `--env-file` or `-e`.
+
+Build and run locally:
+
 ```bash
-docker build -t gridwise .
-docker run -p 8000:8000 --env-file .env gridwise
+docker build -t <registry>/gridwise:<tag> .
+docker run -p 8000:8000 --env-file .env <registry>/gridwise:<tag>
 curl http://localhost:8000/health
 # {"status":"ok"}
 ```
 
-The image installs `coinor-cbc`, binds `0.0.0.0`, and honors `PORT`. No secrets
-are baked into the image.
+### Fallback image (required submission artifact)
+
+Push the tested image once so organizers can pull it during evaluation:
+
+```bash
+docker login
+docker build -t <registry>/gridwise:<tag> .
+docker push <registry>/gridwise:<tag>
+
+# Judge fallback path, from a clean machine:
+docker pull <registry>/gridwise:<tag>
+docker run -p 8000:8000 --env-file .env <registry>/gridwise:<tag>
+curl http://localhost:8000/health
+# {"status":"ok"}
+```
+
+Replace `<registry>/gridwise:<tag>` with your real reference (Docker Hub, GHCR,
+etc.), e.g. `youruser/gridwise:2026-09-18` or the immutable digest
+`youruser/gridwise@sha256:...`. Required container environment variables:
+`LLM_PROVIDER`, the provider key (e.g. `OPENROUTER_API_KEY`) or `LLM_API_KEY`,
+and optionally `LLM_MODEL`, `LLM_BASE_URL`, and `PORT`.
+
+The image bundles `scripts/` and `.docs/`, so the public-sample harness also runs
+inside the container:
+
+```bash
+docker run --rm --env-file .env <registry>/gridwise:<tag> \
+  python scripts/run_public_samples.py --offline
+```
 
 ## Notes
 
 - The battery is modeled as lossless, per the reference schedules.
-- The MILP uses a 10-second solver time limit; the endpoint targets < 30s.
+- The MILP uses an 8-second solver time limit; the LLM interpretation path uses a
+  21-second total budget, so the worst-case request stays under the 30s limit.
 - Directive combination rules: solar factors multiply, reserves take the max,
   grid caps take the min, and no-charge/no-discharge windows union.
+- LLM calls run in a worker thread, so concurrent requests do not block the
+  event loop.
 - No secrets, stack traces, or hard-coded public-case answers appear in
   responses, logs, or the repository.
+
+## Dependencies & credits
+
+Installed from `requirements.txt`: `fastapi`, `uvicorn[standard]` (server),
+`pydantic` v2 (schemas/validation), `httpx` (LLM HTTP client), `pulp` + bundled
+CBC (MILP solver; `coinor-cbc` installed in the image), `python-dotenv` (local
+`.env` loading), and `pytest`/`pytest-mock` (tests only). The LLM is any
+OpenAI-compatible Chat Completions endpoint selected via `LLM_PROVIDER`; we use
+OpenRouter by default. No third-party code implements the directive logic,
+guardrails, optimization model, or replay — those are original to this project.
+
+## Known limitations
+
+- If the model returns malformed output that survives retries, the affected note
+  degrades to `no_op` rather than failing the request (safe failure).
+- If a provider returns fewer directives than notes, only the valid prefix is
+  kept; missing notes become `no_op`.
+- Windows-local CBC is provided by PuLP; the Docker image installs the system
+  `coinor-cbc` for Linux parity.
+- Latency is dominated by the hosted LLM; a provider outage makes every note fall
+  back to `no_op` (the service stays up and valid).
+- The 3-minute video is required only as a tie-break artifact and is submitted
+  separately.

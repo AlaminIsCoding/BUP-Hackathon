@@ -7,14 +7,20 @@ import logging
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from app.guardrails import validate_directives
 from app.llm.interpreter import interpret_notes
 from app.optimizer import OptimizationError, optimize
-from app.replay import ConstraintViolationError, validate_and_totals
-from app.schemas import OptimizeRequest, OptimizeResponse
+from app.replay import ConstraintViolationError, Totals, validate_and_totals
+from app.schemas import (
+    DirectiveInterpretation,
+    HourlyPlan,
+    OptimizeRequest,
+    OptimizeResponse,
+)
 from app.summary import build_plan_summary
 
 logger = logging.getLogger(__name__)
@@ -47,6 +53,25 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _run_pipeline(
+    parsed: OptimizeRequest,
+) -> tuple[list[DirectiveInterpretation], list[HourlyPlan], Totals]:
+    """Run the blocking LLM + solver pipeline off the event loop.
+
+    The interpreter performs synchronous HTTP and the MILP solver is CPU-bound,
+    so both must run in a worker thread to keep the API responsive under
+    concurrent judge requests.
+    """
+
+    raw_directives = interpret_notes(parsed.operator_notes, parsed.battery)
+    directives = validate_directives(
+        raw_directives, parsed.operator_notes, parsed.battery
+    )
+    plan = optimize(parsed, directives)
+    totals = validate_and_totals(plan, parsed, directives)
+    return directives, plan, totals
+
+
 @app.post("/optimize-energy", response_model=OptimizeResponse)
 async def optimize_energy(request: Request):
     """Interpret notes, optimize the schedule, and return the validated plan."""
@@ -65,12 +90,7 @@ async def optimize_energy(request: Request):
         return _error(422, "Request failed validation", _safe_errors(exc))
 
     try:
-        raw_directives = interpret_notes(parsed.operator_notes, parsed.battery)
-        directives = validate_directives(
-            raw_directives, parsed.operator_notes, parsed.battery
-        )
-        plan = optimize(parsed, directives)
-        totals = validate_and_totals(plan, parsed, directives)
+        directives, plan, totals = await run_in_threadpool(_run_pipeline, parsed)
     except OptimizationError:
         logger.warning("Optimizer could not find a feasible schedule")
         return _error(422, "No feasible schedule exists for the given scenario")

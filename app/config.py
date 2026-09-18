@@ -14,6 +14,14 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - python-dotenv is in requirements
+    load_dotenv = None
+
+if load_dotenv is not None:
+    load_dotenv()
+
 DEFAULT_PROVIDER = "openai"
 DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_LLM_MODEL = "gpt-4o-mini"

@@ -8,7 +8,13 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+)
 
 
 class _FiniteModel(BaseModel):
@@ -76,6 +82,21 @@ class StructuredAdjustment(_FiniteModel):
         default=None, ge=0, allow_inf_nan=False
     )
     max_grid_kwh: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @model_serializer
+    def _serialize(self) -> dict:
+        """Emit only the fields relevant to the directive (Section 04 shape)."""
+
+        return {
+            name: value
+            for name, value in (
+                ("hours", self.hours),
+                ("factor", self.factor),
+                ("minimum_energy_kwh", self.minimum_energy_kwh),
+                ("max_grid_kwh", self.max_grid_kwh),
+            )
+            if value is not None
+        }
 
 
 class DirectiveInterpretation(_FiniteModel):
