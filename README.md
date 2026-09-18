@@ -111,6 +111,23 @@ returns a valid schedule. Precedence: real environment variables win over `.env`
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
+### Deploy on Render
+
+The repository includes `render.yaml` for a free Render web service. In the
+Render dashboard, create a new Blueprint from this repository and provide
+`OPENROUTER_API_KEY` when prompted. Render supplies `PORT`; the Blueprint uses
+the required build command, start command, and `/health` health check.
+
+After deployment, verify the public base URL:
+
+```bash
+curl https://<service-name>.onrender.com/health
+# {"status":"ok"}
+```
+
+The free service may sleep when idle, so the first request after inactivity can
+take longer while the instance starts.
+
 ### Health
 
 ```bash
